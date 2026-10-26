@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TAV Sensor Lab 3D</title>
+<style>
+:root{color-scheme:dark;--bg:#07142b;--card:#0f2548;--ln:#1e3a66;--tx:#e8f1ff;--mut:#93a9cc;--cy:#22d3ee;--gr:#22c55e;--rd:#ef4444;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#07142b;--card:#0f2548;--tx:#e8f1ff}}
+:root[data-theme="dark"]{--bg:#07142b}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 system-ui,Segoe UI,Arial,sans-serif}
+header{background:linear-gradient(90deg,#0a1f45,#0b3a66);padding:10px 14px;border-bottom:2px solid var(--cy)}
+header small{color:var(--mut);display:block}header h1{margin:0;font-size:20px;color:var(--cy)}
+nav{display:flex;gap:6px;overflow-x:auto;padding:8px 10px;background:#0a1d3d;position:sticky;top:env(safe-area-inset-top,0px);z-index:5}
+nav button{white-space:nowrap}
+button,select,input{font:inherit}
+button{background:#12305c;color:var(--tx);border:1px solid var(--ln);padding:7px 12px;border-radius:8px;cursor:pointer}
+button:hover{border-color:var(--cy)}button.on{background:var(--cy);color:#03203a;font-weight:700}
+button.go{background:var(--gr);color:#04210f;border:0;font-weight:700}button.stop{background:var(--rd);border:0}
+input,select{background:#0a1d3d;color:var(--tx);border:1px solid var(--ln);border-radius:6px;padding:6px 8px}
+main{display:grid;gap:12px;padding:12px;max-width:1300px;margin:auto;grid-template-columns:1fr}
+@media(min-width:960px){main.two{grid-template-columns:1.1fr 1fr}}
+.card{background:var(--card);border:1px solid var(--ln);border-radius:12px;padding:12px}
+#cv{width:100%;height:min(60vh,420px);display:block;touch-action:none;border-radius:8px;background:radial-gradient(#10315e,#050d1f)}
+.tag{background:#92400e;color:#fde68a;border-radius:6px;padding:2px 8px;font-size:12px}
+table{width:100%;border-collapse:collapse}td{border-bottom:1px solid var(--ln);padding:5px 4px}td:first-child{color:var(--mut)}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+.ok{color:var(--gr)}.bad{color:var(--rd)}
+pre{background:#050d1f;padding:10px;border-radius:8px;overflow-x:auto;font-size:12.5px;color:#a7f3d0}
+details{margin-top:8px}summary{cursor:pointer;color:var(--cy)}
+input[type=range]{width:100%}
+.q button{display:block;width:100%;text-align:left;margin:5px 0}
+.nums button{width:36px;padding:5px 0;margin:2px}.nums .ans{background:#14532d}
+.wire{display:grid;grid-template-columns:90px 1fr;gap:6px;align-items:center}
+</style></head><body>
+<header><small>SMK Pembangunan Nasional Purwodadi Grobogan · Mikroprosesor dan Mikrokontroler · Kelas XI Teknik Audio Video</small>
+<h1>TAV SENSOR LAB 3D — Virtual Microcontroller Laboratory</h1><small>Guru Pengampu: Agus Supriyanto, S.T., M.T.</small></header>
+<nav id="nav"></nav>
+<main id="main"><div class="card" id="stage"><canvas id="cv"></canvas><small style="color:var(--mut)">Seret untuk memutar 360°, roda/cubit untuk zoom. <span class="tag">Simulasi Virtual</span></small></div>
+<div id="panel"></div></main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const APPS_SCRIPT_URL='https://script.google.com/a/macros/guru.smk.belajar.id/s/AKfycbyUHzSlCaUj5P0MAANLt4aKZPqD2lDvGNdugwDwUx1rPdDtVh7q2-JigvVO5-x-IBbI/exec'; // isi dengan URL Web App /exec dari Google Apps Script (lihat Code.gs)
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const LS={g(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}},s(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+const TABS=[['beranda','Beranda'],['materi','Materi'],['temp','Sensor Suhu'],['api','Sensor Api'],['jarak','Sensor Jarak'],['sentuh','Sensor Sentuh'],['suara','Sensor Suara'],['terpadu','Praktikum Terpadu'],['kuis','Kuis Evaluasi'],['hasil','Hasil Belajar']];
+const SENS=['temp','api','jarak','sentuh','suara'];
+const D0={temp:25,apiD:50,apiI:70,apiT:30,pol:'LOW',jarak:100,touch:0,amp:10,thr:50};
+let S={...D0},tab='beranda',running=false,wire={},hist=[],lastVal=null,res={led:0,buzz:0},qz=null,tmr=null;
+const PINS={temp:[['Vs','5V','catu daya 4–20 V'],['Vout','A0','keluaran analog 10 mV/°C'],['GND','GND','referensi 0 V']],
+api:[['VCC','5V','catu daya modul'],['DO','D2','keluaran digital deteksi (logika bergantung modul)'],['GND','GND','referensi 0 V']],
+jarak:[['VCC','5V','catu daya 5 V'],['TRIG','D3','pemicu pulsa 10 µs dari Arduino'],['ECHO','D4','pulsa lebar = waktu tempuh bunyi'],['GND','GND','referensi 0 V']],
+sentuh:[['VCC','5V','catu daya 2–5,5 V'],['OUT','D2','keluaran digital (umumnya aktif-HIGH, bisa berbeda)'],['GND','GND','referensi 0 V']],
+suara:[['VCC','5V','catu daya modul'],['OUT','A0','keluaran analog (AO) amplitudo relatif'],['GND','GND','referensi 0 V']]};
+const NAME={temp:'LM35 (Suhu)',api:'Flame Sensor IR (Api)',jarak:'HC-SR04 (Jarak)',sentuh:'TTP223 (Sentuh)',suara:'Modul Mikrofon (Suara)'};
+const MAT={
+temp:{t:'Menjelaskan prinsip LM35 dan menghitung suhu dari tegangan serta nilai ADC.',d:'LM35 adalah sensor suhu analog presisi dengan keluaran linear 10 mV/°C (0 °C = 0 V). Arduino Uno membaca dengan ADC 10-bit, referensi 5 V: ADC = Vout/5 × 1023.',l:'1) Pasang LM35 pada breadboard. 2) Hubungkan Vs→5V, Vout→A0, GND→GND. 3) Tekan Mulai. 4) Geser suhu, catat Vout dan ADC.',q:'Berapa resolusi suhu per langkah ADC (5 V/1023 ÷ 10 mV)?',c:'Suhu, tegangan, dan ADC berhubungan linear; resolusi sekitar 0,49 °C per langkah.',k:`const int pinLM35 = A0;   // Vout LM35
+void setup(){ Serial.begin(9600); pinMode(8, OUTPUT); }
+void loop(){
+  int adc = analogRead(pinLM35);          // baca ADC 0-1023
+  float suhu = adc * 5.0 / 1023.0 * 100;  // 10 mV per °C
+  digitalWrite(8, suhu >= 40);            // LED suhu tinggi
+  Serial.println(suhu); delay(500);
+}`},
+api:{t:'Memahami deteksi radiasi inframerah dan logika keluaran modul flame sensor.',d:'Flame sensor IR mendeteksi radiasi inframerah dari nyala pada rentang sensitivitas modulnya; ia TIDAK mengukur suhu api. Ambang dan jangkauan di simulasi ini adalah parameter yang dapat diubah, dan logika DO berbeda antar modul.',l:'1) Hubungkan VCC→5V, DO→D2, GND→GND. 2) Pilih logika keluaran modul. 3) Mulai, atur jarak dan intensitas api. 4) Amati LED dan buzzer.',q:'Mengapa logika aktif-LOW/HIGH harus dicek pada datasheet modul?',c:'Keluaran bergantung pada intensitas IR yang diterima, jarak, dan ambang komparator.',k:`void setup(){ pinMode(2, INPUT); pinMode(8, OUTPUT); pinMode(9, OUTPUT); }
+void loop(){
+  // Contoh modul aktif-LOW saat api terdeteksi (cek modul Anda!)
+  bool api = (digitalRead(2) == LOW);
+  digitalWrite(8, api);   // LED peringatan
+  digitalWrite(9, api);   // buzzer
+  delay(100);
+}`},
+jarak:{t:'Menghitung jarak dari waktu echo ultrasonik.',d:'HC-SR04 memancarkan pulsa ultrasonik 40 kHz dan mengukur lama pantulan kembali. Jarak = (t × v)/2 dengan v ≈ 343 m/s (0,0343 cm/µs) pada 20 °C.',l:'1) VCC→5V, TRIG→D3, ECHO→D4, GND→GND. 2) Mulai. 3) Geser jarak 2–400 cm. 4) Catat waktu echo dan hitung ulang jarak.',q:'Mengapa hasil dibagi dua?',c:'Waktu echo adalah perjalanan pergi-pulang sehingga jarak sebenarnya setengahnya.',k:`const int TRIG = 3, ECHO = 4;
+void setup(){ pinMode(TRIG, OUTPUT); pinMode(ECHO, INPUT); Serial.begin(9600); }
+void loop(){
+  digitalWrite(TRIG, LOW); delayMicroseconds(2);
+  digitalWrite(TRIG, HIGH); delayMicroseconds(10); // pulsa pemicu 10 µs
+  digitalWrite(TRIG, LOW);
+  long t = pulseIn(ECHO, HIGH, 30000);  // waktu echo (µs)
+  float cm = t * 0.0343 / 2;            // jarak = t x v / 2
+  Serial.println(cm); delay(200);
+}`},
+sentuh:{t:'Memahami sensor sentuh kapasitif dan logika digital.',d:'TTP223 mendeteksi perubahan kapasitansi akibat jari pada pad sentuh, lalu mengubah keluaran digital. Konfigurasi umum aktif-HIGH, tetapi jumper pada modul dapat mengubah mode (momentary/toggle, aktif-LOW).',l:'1) VCC→5V, OUT→D2, GND→GND. 2) Mulai. 3) Tahan tombol sentuh virtual. 4) Amati logika OUT dan LED.',q:'Apa dampaknya jika modul dikonfigurasi aktif-LOW pada program aktif-HIGH?',c:'Keluaran digital berubah logika saat pad disentuh; periksa konfigurasi modul.',k:`void setup(){ pinMode(2, INPUT); pinMode(8, OUTPUT); }
+void loop(){
+  // TTP223 umumnya aktif-HIGH (dapat berbeda per modul)
+  digitalWrite(8, digitalRead(2) == HIGH);  // LED menyala saat disentuh
+}`},
+suara:{t:'Membedakan amplitudo sinyal mikrofon dan tingkat kebisingan dB.',d:'Modul mikrofon menguatkan sinyal suara; AO memberi amplitudo relatif, DO berubah saat melewati ambang (potensiometer). Nilai simulasi BUKAN pengukuran dB terkalibrasi; dB memerlukan kalibrasi dengan sound level meter.',l:'1) VCC→5V, OUT→A0, GND→GND. 2) Mulai. 3) Atur amplitudo dan ambang. 4) Tekan Tepuk Tangan dan amati LED.',q:'Mengapa nilai ADC mikrofon tidak dapat langsung dibaca sebagai dB?',c:'Ambang menentukan kepekaan; amplitudo relatif bukan satuan dB.',k:`const int pinMic = A0; const int ambang = 512; // ambang ADC
+void setup(){ pinMode(8, OUTPUT); }
+void loop(){
+  int nilai = analogRead(pinMic);     // amplitudo relatif, bukan dB
+  digitalWrite(8, nilai > ambang);    // LED saat tepukan
+}`}};
+const CODE_ALL=`// Smart Electronic Lab Monitoring System (ringkas)
+void loop(){
+  float suhu = analogRead(A0)*5.0/1023*100;  // LM35
+  bool api   = digitalRead(2)==LOW;          // flame (aktif-LOW)
+  bool sentuh= digitalRead(5)==HIGH;         // TTP223 aktifkan sistem
+  if(!sentuh){ lcd.print("STANDBY"); return; }
+  digitalWrite(8, suhu>40 || analogRead(A1)>512); // LED
+  digitalWrite(9, api || jarakCm()<20);           // buzzer
+}`;
+const SL=[['temp','Suhu (°C)',0,100,'temp'],['apiD','Jarak api (cm, parameter simulasi)',5,100,'api'],['apiI','Intensitas IR api (%)',0,100,'api'],['apiT','Ambang deteksi (%)',1,100,'api'],['jarak','Jarak objek (cm)',2,400,'jarak'],['amp','Amplitudo suara (relatif 0–100)',0,100,'suara'],['thr','Ambang sensitivitas',1,100,'suara']];
+const calc={
+temp(){const v=S.temp*.01,adc=Math.round(v/5*1023);return{rows:[['Suhu',S.temp+' °C'],['Vout LM35',v.toFixed(2)+' V'],['ADC (5 V, 10-bit)',adc],['Kategori',S.temp<20?'Rendah':S.temp<=35?'Normal':'Tinggi']],led:S.temp>=40,buzz:0,val:S.temp,max:100,det:S.temp>=40}},
+api(){const sig=S.apiI*Math.max(0,1-S.apiD/100),det=sig>=S.apiT,doo=det?(S.pol=='LOW'?0:1):(S.pol=='LOW'?1:0);return{rows:[['Sinyal IR efektif',sig.toFixed(1)+' %'],['Ambang',S.apiT+' %'],['Logika DO ('+(S.pol=='LOW'?'aktif-LOW':'aktif-HIGH')+')',doo?'HIGH':'LOW'],['Status',det?'API TERDETEKSI':'Aman']],led:det,buzz:det,val:sig,max:100,det}},
+jarak(){const t=S.jarak*2/.0343;return{rows:[['Waktu echo',Math.round(t)+' µs'],['Rumus','(t × 0,0343)/2'],['Jarak',(t*.0343/2).toFixed(1)+' cm'],['Peringatan',S.jarak<20?'Objek dekat!':'Aman']],led:S.jarak<100,buzz:S.jarak<20,val:S.jarak,max:400,det:S.jarak<20}},
+sentuh(){return{rows:[['Status',S.touch?'DISENTUH':'Tidak disentuh'],['OUT (aktif-HIGH)',S.touch?'HIGH (1)':'LOW (0)'],['LED',S.touch?'Menyala':'Padam']],led:!!S.touch,buzz:0,val:S.touch,max:1,det:!!S.touch}},
+suara(){const ao=Math.round(S.amp*10.23),det=S.amp>=S.thr;return{rows:[['Amplitudo relatif',S.amp+' %'],['AO (ADC)',ao],['Ambang',S.thr+' %'],['DO',det?'HIGH':'LOW'],['Catatan','Bukan dB terkalibrasi']],led:det,buzz:0,val:S.amp,max:100,det}}};
+function integ(){if(!S.touch)return{rows:[['Sistem','STANDBY — sentuh sensor untuk mengaktifkan'],['LCD','SISTEM STANDBY']],led:0,buzz:0};
+const t=calc.temp(),a=calc.api(),j=calc.jarak(),s=calc.suara();
+return{rows:[['Suhu',S.temp+' °C ('+t.rows[3][1]+')'],['Status api',a.det?'INDIKASI API':'Aman'],['Jarak objek',(S.jarak)+' cm'],['Sentuhan','Aktif'],['Suara',s.det?'Tepukan terdeteksi':'Sunyi'],['LED',(t.det||s.det)?'ON':'OFF'],['Buzzer',(a.det||j.det)?'ON':'OFF'],['LCD',`T:${S.temp}C D:${S.jarak}cm | API:${a.det?'ADA':'OK'} S:${s.det?'TEPUK':'-'}`]],led:t.det||s.det,buzz:a.det||j.det}}
+/* ---------- 3D ---------- */
+const cv=$('#cv'),R=new THREE.WebGLRenderer({canvas:cv,antialias:true,alpha:true}),sc=new THREE.Scene(),cam=new THREE.PerspectiveCamera(45,1,.1,100),G=new THREE.Group();sc.add(G);
+sc.add(new THREE.AmbientLight(0xffffff,.75));const dl=new THREE.DirectionalLight(0xffffff,.8);dl.position.set(5,8,6);sc.add(dl);
+const M=(g,c,x,y,z,e)=>{const m=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:c,emissive:e||0}));m.position.set(x,y,z);return m},B=(w,h,d)=>new THREE.BoxGeometry(w,h,d),C=(r,h)=>new THREE.CylinderGeometry(r,r,h,20);
+sc.add(M(B(3,.2,2.2),0x0e6ba8,-3,0,0),M(B(4,.2,2.5),0xf1f5f9,1,0,0),M(B(2.6,.1,1),0x16a34a,-3,0,-2.5));
+const led=M(new THREE.SphereGeometry(.18,16,16),0x22c55e,2.8,.3,.8),buz=M(C(.3,.35),0x111827,2.8,.28,-.6);sc.add(led,buz);
+let th=.5,ph=1.1,rad=11,auto=true,drag=null,fingers=null;
+const APIN={'5V':-3.9,'3V3':-3.6,GND:-3.3,A0:-2.9,D2:-2.5,D3:-2.2,D4:-1.9};
+function module(k){const g=new THREE.Group(),col={temp:0x1e3a8a,api:0x7f1d1d,jarak:0x1d4ed8,sentuh:0x0f766e,suara:0x1e40af}[k];g.add(M(B(1.1,.1,.8),col,0,.15,0));
+if(k=='temp')g.add(M(C(.17,.35),0x111111,0,.4,0));
+if(k=='api'){g.add(M(new THREE.SphereGeometry(.2,16,16),0xb91c1c,0,.35,.1),M(B(.2,.15,.2),0x3b82f6,.35,.28,-.2))}
+if(k=='jarak'){[-.3,.3].forEach(x=>{const e=M(C(.22,.3),0xcbd5e1,x,.4,0);e.rotation.x=Math.PI/2;e.position.z=0;g.add(e)})}
+if(k=='sentuh')g.add(M(B(.5,.04,.5),0xd1d5db,0,.25,0));
+if(k=='suara'){g.add(M(C(.17,.25),0xcbd5e1,0,.35,.05),M(B(.2,.15,.2),0x3b82f6,.38,.28,-.2))}return g}
+let waves=[],dots=[],extra={};
+function build(){while(G.children.length)G.remove(G.children[0]);waves=[];dots=[];extra={};
+if(SENS.includes(tab)){const m=module(tab);m.scale.setScalar(1.2);m.position.set(1,0,0);G.add(m);const p=PINS[tab];
+p.forEach((pn,i)=>{const w=wire[tab+pn[0]];if(!w||w=='—'||APIN[w]===undefined)return;const a=new THREE.Vector3(1+(i-(p.length-1)/2)*.38,.25,.5),b=new THREE.Vector3(APIN[w],.15,1.05),cu=new THREE.QuadraticBezierCurve3(a,new THREE.Vector3((a.x+b.x)/2,1.6+i*.2,1),b),ok=w==pn[1];
+G.add(new THREE.Mesh(new THREE.TubeGeometry(cu,20,.03,6),new THREE.MeshBasicMaterial({color:ok?0x22c55e:0xef4444})));if(ok){const d=M(new THREE.SphereGeometry(.06,8,8),0xfde047);d.userData={cu,i};G.add(d);dots.push(d)}});
+if(tab=='api'){extra.fl=M(new THREE.ConeGeometry(.35,.9,12),0xff7a00,1,.5,-2,0xff4500);G.add(extra.fl)}
+if(tab=='jarak'){extra.ob=M(B(1.2,1.2,.15),0xf59e0b,1,.6,-2);G.add(extra.ob);for(let i=0;i<3;i++){const r=new THREE.Mesh(new THREE.TorusGeometry(.4,.02,6,24),new THREE.MeshBasicMaterial({color:0x22d3ee,transparent:true}));r.position.set(1,.6,0);G.add(r);waves.push(r)}}
+if(tab=='sentuh'){extra.fg=M(new THREE.SphereGeometry(.18,12,12),0xfca5a5,1,.9,0);G.add(extra.fg)}
+if(tab=='suara'){for(let i=0;i<3;i++){const r=new THREE.Mesh(new THREE.TorusGeometry(.4,.02,6,24),new THREE.MeshBasicMaterial({color:0x22d3ee,transparent:true}));r.position.set(1,.6,-.2);G.add(r);waves.push(r)}}}
+else SENS.forEach((k,i)=>{const m=module(k);m.scale.setScalar(.6);m.position.set(-.7+i*.85,0,0);G.add(m)})}
+const cvEl=cv;cvEl.addEventListener('pointerdown',e=>{drag=[e.clientX,e.clientY];auto=false;cvEl.setPointerCapture(e.pointerId)});
+cvEl.addEventListener('pointermove',e=>{if(!drag)return;th-=(e.clientX-drag[0])*.008;ph=Math.min(1.5,Math.max(.2,ph-(e.clientY-drag[1])*.008));drag=[e.clientX,e.clientY]});
+cvEl.addEventListener('pointerup',()=>drag=null);cvEl.addEventListener('wheel',e=>{e.preventDefault();rad=Math.min(20,Math.max(4,rad+e.deltaY*.01))},{passive:false});
+let pinch=0;cvEl.addEventListener('touchmove',e=>{if(e.touches.length==2){const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);if(pinch)rad=Math.min(20,Math.max(4,rad-(d-pinch)*.03));pinch=d}},{passive:true});cvEl.addEventListener('touchend',()=>pinch=0);
+function loop(t){requestAnimationFrame(loop);const w=cv.clientWidth,h=cv.clientHeight;if(cv.width!=w*devicePixelRatio||cv.height!=h*devicePixelRatio){R.setPixelRatio(devicePixelRatio);R.setSize(w,h,false);cam.aspect=w/h;cam.updateProjectionMatrix()}
+if(auto)th+=.004;cam.position.set(rad*Math.sin(ph)*Math.sin(th),rad*Math.cos(ph),rad*Math.sin(ph)*Math.cos(th));cam.lookAt(0,0,-.5);
+const s=t/1000;led.material.emissive.setHex(res.led?0x22ff66:0x052e16);buz.material.color.setHex(res.buzz?0xef4444:0x111827);buz.scale.setScalar(res.buzz?1+.15*Math.sin(s*30):1);
+dots.forEach(d=>{d.visible=running;d.position.copy(d.userData.cu.getPoint((s*.5+d.userData.i*.3)%1))});
+if(extra.fl){extra.fl.position.z=-1-S.apiD/40;extra.fl.scale.setScalar(.3+S.apiI/100);extra.fl.visible=true}
+if(extra.ob)extra.ob.position.z=-.8-S.jarak/70;if(extra.fg)extra.fg.position.y=S.touch?.38:.9;
+waves.forEach((r,i)=>{const f=running?((s*.6+i/3)%1):0;r.visible=running;if(tab=='jarak'){const L=.8+S.jarak/70;r.position.z=-f*L;r.material.opacity=1-f}else{r.scale.setScalar(1+f*3*Math.max(.15,S.amp/40));r.material.opacity=1-f}});
+R.render(sc,cam)}
+requestAnimationFrame(loop);
+/* ---------- UI ---------- */
+function wireOK(k){return PINS[k].every(p=>wire[k+p[0]]==p[1])}
+function wireMsgs(k){return PINS[k].map(p=>{const w=wire[k+p[0]];if(!w||w=='—')return`<div class="bad">✗ Pin ${p[0]} belum dihubungkan.</div>`;return w==p[1]?`<div class="ok">✓ ${p[0]} → ${w}</div>`:`<div class="bad">✗ ${p[0]} → ${w} salah. Seharusnya ke ${p[1]} (${p[2]}).</div>`}).join('')}
+function matHTML(k){const m=MAT[k];return`<h3 style="color:var(--cy)">${NAME[k]}</h3><p><b>Tujuan:</b> ${m.t}</p><p><b>Pengertian &amp; prinsip kerja:</b> ${m.d}</p><p><b>Fungsi pin:</b></p><ul>${PINS[k].map(p=>`<li>${p[0]} → ${p[1]}: ${p[2]}</li>`).join('')}</ul><p><b>Langkah praktikum:</b> ${m.l}</p><p><b>Kode Arduino:</b></p><pre>${esc(m.k)}</pre><p><b>Pertanyaan diskusi:</b> ${m.q}</p><p><b>Kesimpulan:</b> ${m.c}</p>`}
+function nav(){$('#nav').innerHTML=TABS.map(t=>`<button class="${t[0]==tab?'on':''}" onclick="go('${t[0]}')">${t[1]}</button>`).join('')}
+function go(t){tab=t;running=false;res={led:0,buzz:0};hist=[];lastVal=null;clearInterval(tmr);nav();const show=['beranda','terpadu',...SENS].includes(t);$('#stage').style.display=show?'':'none';$('#main').className=show?'two':'';auto=t=='beranda';if(show)build();$('#panel').innerHTML=pages(t);if(t=='kuis')kuisRender();if(SENS.includes(t)||t=='terpadu')update()}
+function ctrls(keys){let h='';SL.filter(s=>keys.includes(s[4])).forEach(s=>h+=`<label>${s[1]}: <b id="v_${s[0]}">${S[s[0]]}</b><input type="range" min="${s[2]}" max="${s[3]}" value="${S[s[0]]}" oninput="S.${s[0]}=+this.value;$('#v_${s[0]}').textContent=this.value;update()"></label>`);
+if(keys.includes('api'))h+=`<div class="row">Logika DO modul: <select onchange="S.pol=this.value;update()"><option value="LOW" ${S.pol=='LOW'?'selected':''}>Aktif-LOW</option><option value="HIGH" ${S.pol=='HIGH'?'selected':''}>Aktif-HIGH</option></select></div>`;
+if(keys.includes('sentuh'))h+=`<div class="row"><button onpointerdown="S.touch=1;update()" onpointerup="S.touch=0;update()" onpointerleave="S.touch=0;update()">👆 Sentuh (tahan)</button><button onclick="S.touch=S.touch?0:1;update()">Toggle sentuh</button></div>`;
+if(keys.includes('suara'))h+=`<div class="row"><button onclick="clap()">👏 Tepuk Tangan</button></div>`;return h}
+function clap(){const o=S.amp;S.amp=95;update();$('#v_amp')&&($('#v_amp').textContent=95);setTimeout(()=>{S.amp=o;update();$('#v_amp')&&($('#v_amp').textContent=o)},400)}
+function pages(t){
+if(t=='beranda')return`<div class="card"><h2 style="margin-top:0">Selamat datang di laboratorium virtual</h2><p>Aplikasi ini <span class="tag">Simulasi Virtual</span>: perilaku sensor dimodelkan secara matematis, bukan menjalankan firmware Arduino sungguhan. Objek 3D: Arduino Uno R3, breadboard, lima modul sensor, LED, buzzer, dan LCD 16x2.</p><p>Materi: Dasar sensor suhu, api, jarak, sentuh, dan suara.</p><ol><li>Pilih menu sensor.</li><li>Sambungkan pin pada Arduino (hijau = benar, merah = salah).</li><li>Tekan Mulai Simulasi, lalu ubah nilai sensor.</li><li>Kerjakan Kuis Evaluasi.</li></ol></div>`;
+if(t=='materi')return`<div class="card">${SENS.map(matHTML).join('<hr style="border-color:var(--ln)">')}</div>`;
+if(t=='kuis')return'<div class="card" id="kz"></div>';if(t=='hasil')return hasil();
+const single=SENS.includes(t),keys=single?[t]:SENS;
+let h=`<div class="card"><span class="tag">Simulasi Virtual</span> <b>${single?NAME[t]:'Smart Electronic Lab Monitoring System'}</b>`;
+if(single){h+=`<h4>Pengkabelan ke Arduino Uno</h4><div class="wire">`+PINS[t].map(p=>`<span>${p[0]}</span><select onchange="wire['${t+p[0]}']=this.value;build();update()">${['—','5V','3V3','GND','A0','D2','D3','D4'].map(o=>`<option ${wire[t+p[0]]==o?'selected':''}>${o}</option>`).join('')}</select>`).join('')+`</div><div id="wm"></div>`}else h+=`<p>Sentuh sensor untuk mengaktifkan sistem. Wiring diasumsikan benar.</p>`;
+h+=`<div class="row"><button class="go" onclick="start()">▶ Mulai Simulasi</button><button class="stop" onclick="stopSim()">■ Hentikan</button><button onclick="resetSim()">↺ Reset</button></div>${ctrls(keys)}</div><div class="card"><b>Monitor Pembacaan</b><div id="out"></div><canvas id="ch" width="320" height="70" style="width:100%;background:#050d1f;border-radius:6px;margin-top:8px"></canvas></div>`;
+h+=single?`<div class="card"><details open><summary>Materi, kode Arduino &amp; analisis</summary>${matHTML(t)}<p id="an"></p></details></div>`:`<div class="card"><details><summary>Kode Arduino terpadu</summary><pre>${esc(CODE_ALL)}</pre></details></div>`;return h}
+function start(){if(SENS.includes(tab)&&!wireOK(tab)){running=false;update();return}running=true;update()}
+function stopSim(){running=false;update()}
+function resetSim(){S={...D0};wire={};running=false;hist=[];go(tab)}
+function update(){if(!(SENS.includes(tab)||tab=='terpadu'))return;let out,h='';
+if(SENS.includes(tab)){$('#wm').innerHTML=wireMsgs(tab);if(!running)out={rows:[['Status','Simulasi berhenti — sambungkan pin lalu tekan Mulai']],led:0,buzz:0};else if(!wireOK(tab))out={rows:[['Status','Rangkaian salah — perbaiki sambungan (merah)']],led:0,buzz:0};else out=calc[tab]()}
+else out=running?integ():{rows:[['Status','Tekan Mulai Simulasi']],led:0,buzz:0};
+res=out;lastVal=out.val==null?null:out.val/out.max;
+$('#out').innerHTML='<table>'+out.rows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')+`<tr><td>LED</td><td class="${out.led?'ok':''}">${out.led?'● ON':'○ OFF'}</td></tr><tr><td>Buzzer</td><td class="${out.buzz?'bad':''}">${out.buzz?'♪ ON':'OFF'}</td></tr></table>`;
+if(SENS.includes(tab)&&running&&wireOK(tab)&&$('#an'))$('#an').innerHTML='<b>Analisis hasil:</b> nilai saat ini — '+out.rows.map(r=>r[0]+' = '+r[1]).join('; ')+'.';
+clearInterval(tmr);tmr=setInterval(()=>{if(running&&lastVal!=null){hist.push(lastVal);if(hist.length>60)hist.shift()}draw()},400);draw()}
+function draw(){const c=$('#ch');if(!c)return;const x=c.getContext('2d');x.clearRect(0,0,320,70);x.strokeStyle='#22d3ee';x.beginPath();hist.forEach((v,i)=>{const px=i*320/59,py=66-v*60;i?x.lineTo(px,py):x.moveTo(px,py)});x.stroke();x.fillStyle='#93a9cc';x.font='10px sans-serif';x.fillText('Grafik real-time (ternormalisasi)',4,10)}
+/* ---------- Kuis ---------- */
+const BANK=[[0,'Sensitivitas LM35 adalah…','10 mV/°C','1 mV/°C','100 mV/°C','1 V/°C'],[0,'LM35 pada 30 °C (ADC 5 V, 10-bit) memberi ADC sekitar…','61','30','153','300'],
+[1,'Flame sensor inframerah mendeteksi…','radiasi inframerah dari nyala','suhu api secara langsung','bunyi nyala api','hanya asap'],[1,'Logika keluaran DO modul flame sensor…','bergantung desain modul, cek datasheet','selalu HIGH saat api','selalu LOW saat api','tidak pernah berubah'],
+[2,'Rumus jarak HC-SR04 dari waktu echo adalah…','(t × v)/2','t × v','t / v','(t + v)/2'],[2,'Waktu echo 5831 µs (v = 343 m/s) berarti jarak ±…','100 cm','200 cm','50 cm','10 cm'],
+[3,'TTP223 adalah sensor…','sentuh kapasitif','suhu analog','ultrasonik','inframerah'],[3,'Keluaran aktif-HIGH saat disentuh berarti OUT menjadi…','HIGH','LOW','mengambang','analog bertahap'],
+[4,'Slider amplitudo pada simulasi suara adalah…','nilai relatif, bukan dB terkalibrasi','dB terkalibrasi','tegangan tetap 5 V','frekuensi suara'],[4,'Ambang sensitivitas pada modul suara berfungsi…','menentukan kapan DO berubah','mengubah catu daya','menambah jumlah pin','mengukur suhu']];
+const shuf=a=>{a=[...a];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
+function kuisRender(){const z=$('#kz');if(!qz){const id=LS.g('ident')||{};z.innerHTML=`<h3 style="margin-top:0">Identitas Siswa</h3><div class="wire"><span>Nama</span><input id="i1" value="${esc(id.nama||'')}"><span>NIS</span><input id="i2" value="${esc(id.nis||'')}"><span>Kelas</span><input id="i3" value="${esc(id.kelas||'XI Teknik Audio Video')}"><span>No. absen</span><input id="i4" type="number" min="1" value="${esc(id.absen||'')}"></div><p id="ie" class="bad"></p><p>${BANK.length} soal, waktu 30 menit, acak urutan.</p><button class="go" onclick="kuisMulai()">Mulai Kuis</button>`;return}
+if(qz.done){const r=qz.r;z.innerHTML=`<h3 style="margin-top:0">Hasil</h3><p style="font-size:28px;margin:0" class="${r.status=='Tuntas'?'ok':'bad'}">${r.nilai} — ${r.status}</p><p>Benar ${r.benar}, salah ${r.salah}, durasi ${r.durasi} detik.</p><p id="sv">${qz.save}</p><button onclick="qz=null;kuisRender()">Kuis baru</button>`;return}
+const q=qz.qs[qz.i];z.innerHTML=`<div class="row"><b>Soal ${qz.i+1}/${qz.qs.length}</b><span id="tm" style="margin-left:auto"></span></div><div class="q"><p>${esc(q.q)}</p>${q.o.map((o,j)=>`<button class="${qz.a[qz.i]===j?'on':''}" onclick="qz.a[qz.i]=${j};kuisRender()">${'ABCD'[j]}. ${esc(o)}</button>`).join('')}</div><div class="row"><button onclick="qz.i=Math.max(0,qz.i-1);kuisRender()">◀</button><button onclick="qz.i=Math.min(qz.qs.length-1,qz.i+1);kuisRender()">▶</button><button class="go" onclick="kumpul()">Kumpulkan</button></div><div class="nums">${qz.qs.map((_,i)=>`<button class="${qz.a[i]!==undefined?'ans':''}" onclick="qz.i=${i};kuisRender()">${i+1}</button>`).join('')}</div>`}
+function kuisMulai(){const v=[1,2,3,4].map(i=>$('#i'+i).value.trim());if(v.some(x=>!x)){$('#ie').textContent='Semua identitas wajib diisi.';return}
+LS.s('ident',{nama:v[0],nis:v[1],kelas:v[2],absen:v[3]});qz={id:v,i:0,a:{},t0:Date.now(),end:Date.now()+18e5,qs:shuf(BANK.map((b,n)=>{const o=shuf(b.slice(2).map((t,j)=>[t,j==0]));return{id:'Q'+(n+1),s:b[0],q:b[1],o:o.map(x=>x[0]),k:o.findIndex(x=>x[1])}}))};
+clearInterval(tmr);tmr=setInterval(()=>{if(!qz||qz.done)return;const L=qz.end-Date.now();if(L<=0){kumpul(true);return}const e=$('#tm');if(e)e.textContent='⏱ '+Math.floor(L/6e4)+':'+String(Math.floor(L/1e3)%60).padStart(2,'0')},500);kuisRender()}
+async function kumpul(force){if(!force){const n=Object.keys(qz.a).length;if(!confirm(`Terjawab ${n} dari ${qz.qs.length}. Kumpulkan sekarang?`))return}
+clearInterval(tmr);const kkm=LS.g('kkm')||75,per=100/qz.qs.length,jw=qz.qs.map((q,i)=>({id:q.id,pilih:qz.a[i]===undefined?'-':'ABCD'[qz.a[i]],benar:qz.a[i]===q.k}));const b=jw.filter(x=>x.benar).length,nilai=Math.round(b*per);
+const r={id:'TAV'+Date.now(),waktu:new Date().toISOString(),nama:qz.id[0],nis:qz.id[1],kelas:qz.id[2],absen:qz.id[3],nilai,benar:b,salah:qz.qs.length-b,durasi:Math.round((Date.now()-qz.t0)/1e3),status:nilai>=kkm?'Tuntas':'Belum tuntas',jawaban:jw};
+const all=LS.g('hasil')||[];all.push(r);LS.s('hasil',all);qz.done=true;qz.r=r;qz.save='Mengirim ke Google Spreadsheet…';kuisRender();
+if(!APPS_SCRIPT_URL){qz.save='⚠ Belum tersimpan di Spreadsheet: APPS_SCRIPT_URL belum dikonfigurasi. Hasil hanya tersimpan di perangkat ini.'}
+else try{const rs=await fetch(APPS_SCRIPT_URL,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(r)}),j=await rs.json();qz.save=j.ok?'✓ Tersimpan di Spreadsheet (dikonfirmasi server).':'✗ Gagal disimpan: '+esc(j.error||'respons server tidak valid')}catch(e){qz.save='✗ Gagal menyimpan (koneksi/izin). Hasil hanya tersimpan lokal.'}
+if(tab=='kuis')kuisRender()}
+function hasil(){const a=LS.g('hasil')||[],kkm=LS.g('kkm')||75,n=a.length,s=a.map(x=>x.nilai);
+return`<div class="card"><h3 style="margin-top:0">Hasil Belajar (perangkat ini)</h3><div class="row">KKM: <input type="number" value="${kkm}" style="width:80px" onchange="LS.s('kkm',+this.value);go('hasil')"></div>${n?`<p>Peserta ${n} · Tertinggi ${Math.max(...s)} · Terendah ${Math.min(...s)} · Rata-rata ${(s.reduce((x,y)=>x+y,0)/n).toFixed(1)} · Tuntas ${Math.round(a.filter(x=>x.nilai>=kkm).length/n*100)}%</p><table>${a.map(x=>`<tr><td>${esc(x.nama)} (${esc(x.nis)})</td><td>${x.nilai} — ${x.nilai>=kkm?'Tuntas':'Belum tuntas'}</td></tr>`).join('')}</table>`:'<p>Belum ada hasil.</p>'}<p style="color:var(--mut)">Rekap seluruh kelas dan dashboard guru dibaca dari Google Spreadsheet melalui Apps Script yang dilindungi token di sisi server.</p></div>`}
+go('beranda');
+</script></body></html>
